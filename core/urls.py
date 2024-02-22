@@ -26,9 +26,9 @@ from drf_yasg import openapi
 
 schema_view = get_schema_view(
     openapi.Info(
-        title="DRF Readymade Auth - API Documentation",
+        title="BUET Vendor Vista - API Documentation",
         default_version='v1',
-        description="API Documentation for DRF Readymade Auth. Feel free to use it for your projects.",
+        description="Description pore dibo.",
         terms_of_service="",
         contact=openapi.Contact(email="mehedi.72.khan@gmail.com"),
         license=openapi.License(name="No License"),
