@@ -1,5 +1,6 @@
-from ..models import User
-from ..serializers import UserRegistrationSerializer
+from django.http import JsonResponse
+from django.db import connection
+# from ..models import User
 
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -9,67 +10,108 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 
-from ..docs.decorators import user_register_swagger_schema
+import jwt
+from datetime import datetime, timedelta
+
+SECRET_KEY = 'thesungoesdownthestarscomeoutandallthatcountsishereandnow'
 
 
-class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
-    @classmethod
-    def get_token(cls, user):
-        token = super().get_token(user)
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def login(request):
+    data = request.data
+    email = data.get("email")
+    password = data.get("password")
 
-        # Add custom claims
-        token["email"] = user.email
-        token["first_name"] = user.first_name
-        token["last_name"] = user.last_name
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'SELECT * FROM "User" WHERE email = %s AND password = %s',
+            [email, password]
+        )
+        user_data = cursor.fetchone()
+        print(user_data)
 
-        return token
+    if not user_data:
+        return Response(
+            {"error": "Invalid email or password"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user_id = user_data[0]
+    first_name = user_data[1]
+    last_name = user_data[2]
+    username = user_data[3]
+    user_email = user_data[4]
+
+    expiration_time = datetime.utcnow() + timedelta(days=7)
+
+    payload = {
+        "user_id": user_id,
+        "email": user_email,
+        "first_name": first_name,
+        "last_name": last_name,
+        "username": username,
+        "exp": expiration_time
+    }
+
+    token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+    return Response({
+        "access_token": token,
+        "token_type": "Bearer",
+        "expires_in": expiration_time
+    })
 
 
-class MyTokenObtainPairView(TokenObtainPairView):
-    serializer_class = MyTokenObtainPairSerializer
-
-@user_register_swagger_schema()
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
-    serializer = UserRegistrationSerializer(data=request.data)
-    if serializer.is_valid():
-        first_name = serializer.validated_data["first_name"]
-        last_name = serializer.validated_data["last_name"]
-        email = serializer.validated_data["email"]
-        password = serializer.validated_data["password"]
+    data = request.data
+    first_name = data.get("first_name")
+    last_name = data.get("last_name")
+    email = data.get("email")
+    password = data.get("password")
 
-        username = f"{first_name.lower()}.{last_name.lower()}"
-        num = 1
-        while User.objects.filter(username=username).exists():
-            username = f"{first_name.lower()}.{last_name.lower()}.{num}"
-            num += 1
-
-        if len(password) < 8:
-            return Response(
-                {"error": "Password must be at least 8 characters"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if not email or not password or not first_name or not last_name:
-            return Response(
-                {"error": "Please provide all fields"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        User.objects.create_user(
-            username=username,
-            first_name=first_name,
-            last_name=last_name,
-            email=email,
-            password=password,
-        )
-        return Response({
-            "message": "User created successfully"
-        }, status=status.HTTP_201_CREATED)
-
-    if serializer.errors["email"][0]:
+    if not email or not password or not first_name or not last_name:
         return Response(
-            {"error": serializer.errors["email"][0]}, status=status.HTTP_400_BAD_REQUEST
+            {"error": "Please provide all fields"},
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
-    return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+    username = f"{first_name.lower()}.{last_name.lower()}"
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'SELECT * FROM "User" WHERE username = %s', [username])
+        existing_user = cursor.fetchone()
+
+    # TODO: fix duplicate username
+    suffix = 1
+    while existing_user:
+        username = f"{first_name.lower()}.{last_name.lower()}{suffix}"
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT * FROM "User" WHERE username = %s', [username])
+            existing_user = cursor.fetchone()
+        suffix += 1
+
+    if len(password) < 8:
+        return Response(
+            {"error": "Password must be at least 8 characters"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'INSERT INTO "User" (username, first_name, last_name, email, password) VALUES (%s, %s, %s, %s, %s)',
+                [username, first_name, last_name, email, password]
+            )
+
+    except Exception as e:
+        return Response(
+            {"error": "Failed to create user"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response({
+        "message": "User created successfully"
+    }, status=status.HTTP_201_CREATED)
