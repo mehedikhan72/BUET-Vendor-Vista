@@ -75,6 +75,9 @@ def add_product(request):
 
         return JsonResponse({"message": "Product added successfully"}, status=201)
 
+    else:
+        return JsonResponse({"error": "Invalid request"}, status=400)
+
 
 @csrf_exempt
 @permission_classes([AllowAny])
@@ -192,6 +195,7 @@ def add_product_size(request, id):
 @permission_classes([AllowAny])
 def place_order(request):
     if request.method == "POST":
+
         user_id = get_user(request.headers.get("Authorization").split(" ")[1])
 
         if user_id == "expired" or user_id == "invalid":
@@ -288,6 +292,8 @@ def place_order(request):
                 return JsonResponse({"error": "No items were ordered. Try with a lesser quantity"}, status=400)
 
 
+@csrf_exempt
+@permission_classes([AllowAny])
 def get_products(request, category):
     if request.method == "GET":
         with connection.cursor() as cursor:
@@ -298,6 +304,8 @@ def get_products(request, category):
             products = cursor.fetchall()
 
         return JsonResponse({"products": products}, status=200)
+
+    return JsonResponse({"error": "Invalid request"}, status=400)
 
 
 @csrf_exempt
@@ -509,3 +517,143 @@ def get_top_selling_products(request):
             products = cursor.fetchall()
 
             return JsonResponse({"products": products}, status=200)
+
+
+@csrf_exempt
+@permission_classes([AllowAny])
+def cancel_order(request, order_id):
+    user_id = get_user(request.headers.get("Authorization").split(" ")[1])
+
+    # get orders user id
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'SELECT user_id FROM "Order" WHERE id = %s',
+            [order_id]
+        )
+        if cursor.fetchone() == None:
+            return JsonResponse({"error": "Order does not exist"}, status=404)
+        order_user_id = cursor.fetchone()[0]
+
+        if user_id != order_user_id:
+            return JsonResponse({"error": "This order does not belong to you."}, status=401)
+
+        cursor.execute(
+            'CALL cancel_order_2(%s)',
+            [order_id]
+        )
+
+        return JsonResponse({"message": "Order cancelled successfully"}, status=200)
+
+
+@csrf_exempt
+@permission_classes([AllowAny])
+def delete_product(request, id):
+    user_id = get_user(request.headers.get("Authorization").split(" ")[1])
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'SELECT owner_id FROM "Product" WHERE id = %s',
+            [id]
+        )
+        if cursor.fetchone() == None:
+            return JsonResponse({"error": "Product does not exist"}, status=404)
+        product_owner_id = cursor.fetchone()[0]
+
+        if user_id != product_owner_id:
+            return JsonResponse({"error": "You are not the owner of this product"}, status=401)
+
+        cursor.execute(
+            'CALL delete_product(%s)',
+            [id]
+        )
+
+        return JsonResponse({"message": "Product deleted successfully"}, status=200)
+
+
+@csrf_exempt
+@permission_classes([AllowAny])
+def deliver_order(request, order_id):
+    user_id = get_user(request.headers.get("Authorization").split(" ")[1])
+
+    if user_id == "expired" or user_id == "invalid":
+        return JsonResponse({"error": "Invalid token"}, status=401)
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'SELECT user_id FROM "Order" WHERE id = %s',
+            [order_id]
+        )
+        order_row = cursor.fetchone()
+
+        if order_row is None:
+            return JsonResponse({"error": "Order does not exist"}, status=404)
+
+        order_user_id = order_row[0]
+
+        if user_id != order_user_id:
+            return JsonResponse({"error": "This order does not belong to you."}, status=401)
+
+        cursor.execute(
+            'UPDATE "Order" SET status = %s WHERE id = %s',
+            ['delivered', order_id]
+        )
+
+        return JsonResponse({"message": "Order delivered successfully"}, status=200)
+
+
+@csrf_exempt
+@permission_classes([AllowAny])
+def search_products(request):
+    query = request.GET.get('query')
+
+    if query is None:
+        return JsonResponse({"error": "Invalid request"}, status=400)
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'SELECT * FROM "Product" WHERE name LIKE %s or category LIKE %s or description LIKE %s',
+            [f'%{query}%', f'%{query}%', f'%{query}%']
+        )
+        products = cursor.fetchall()
+
+        return JsonResponse({"products": products}, status=200)
+
+
+@csrf_exempt
+@permission_classes([AllowAny])
+def get_top_rated_product_by_category(request):
+    if request.method == "POST":
+        category = request.POST.get("category")
+        limit = 10
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                'SELECT * FROM get_top_rated_product_by_category(%s, %s)',
+                [category, limit]
+            )
+            products = cursor.fetchall()
+
+            return JsonResponse({"products": products}, status=200)
+
+    else:
+        return JsonResponse({"error": "Invalid request"}, status=400)
+    
+@csrf_exempt
+@permission_classes([AllowAny])
+def generate_top_selling_products_by_category(request):
+    if request.method == "POST":
+        category = request.POST.get("category")
+        category = request.POST.get("category")
+        limit = 10
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT * FROM generate_top_selling_products_by_category(%s, %s)',
+                [category, limit]
+            )
+            products = cursor.fetchall()
+
+            return JsonResponse({"products": products}, status=200)
+        
+    else:
+        return JsonResponse({"error": "Invalid request"}, status=400)

@@ -48,3 +48,44 @@ def get_total_sales_for_each_product(request, id):
             "total_sales": total_sales,
             "total_sales_money": total_sales_money
         },)
+
+
+@csrf_exempt
+@permission_classes([AllowAny])
+def get_users_pending_orders(request):
+    user_id = get_user(request.headers.get("Authorization").split(" ")[1])
+    # get pending orders and relevant ordered items
+    pending_orders = []
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'SELECT * FROM "Order" WHERE user_id = %s AND status = %s',
+            [user_id, "pending"]
+        )
+        pending_orders = cursor.fetchall()
+
+    data = []
+
+    for order in pending_orders:
+        order_id = order[0]
+        shipping_address = order[1]
+        status = order[2]
+        ordered_items = []
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT * FROM "OrderedItem" WHERE order_id = %s',
+                [order_id]
+            )
+            ordered_items = cursor.fetchall()
+
+            data.append(
+                {
+                    "order_id": order_id,
+                    "shipping_address": shipping_address,
+                    "status": status,
+                    "ordered_items": ordered_items
+                }
+            )
+
+    return JsonResponse(data, safe=False)
