@@ -10,12 +10,14 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 
+from ..docs.decorators import user_register_swagger_schema, user_login_swagger_schema
+
 import jwt
 from datetime import datetime, timedelta
 
 SECRET_KEY = 'thesungoesdownthestarscomeoutandallthatcountsishereandnow'
 
-
+@user_login_swagger_schema()
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login(request):
@@ -23,13 +25,27 @@ def login(request):
     email = data.get("email")
     password = data.get("password")
 
+    user_exists = False
     with connection.cursor() as cursor:
         cursor.execute(
-            'SELECT * FROM "User" WHERE email = %s AND password = %s',
+            'SELECT authenticate_user(%s, %s)',
             [email, password]
         )
+        user_exists = cursor.fetchone()[0]
+        
+    if not user_exists:
+        return Response(
+            {"error": "Invalid email or password"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+        
+    user_data = None
+    with connection.cursor() as cursor:
+        cursor.execute(
+            'SELECT * FROM "User" WHERE email = %s',
+            [email]
+        )
         user_data = cursor.fetchone()
-        print(user_data)
 
     if not user_data:
         return Response(
@@ -62,6 +78,8 @@ def login(request):
     })
 
 
+
+@user_register_swagger_schema()
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def register(request):
